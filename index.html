@@ -8,13 +8,19 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     display: flex; justify-content: center; align-items: center;
-    min-height: 100vh; background: #2c3e50; font-family: "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
+    background: url('src/星汉灿烂，若出其里.png') no-repeat center center fixed;
+    background-size: cover;
+    font-family: "Microsoft YaHei", sans-serif;
   }
   .container {
     display: flex; flex-direction: column; align-items: center; gap: 16px;
-    background: #34495e; padding: 24px 32px; border-radius: 12px;
+    background: rgba(52, 73, 94, 0.88); padding: 24px 32px; border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    backdrop-filter: blur(4px);
+    cursor: grab; user-select: none;
   }
+  .container.dragging { cursor: grabbing; }
   .header {
     display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center;
   }
@@ -87,6 +93,7 @@ const PADDING = 30;
 const BOARD_SIZE = CELL * (SIZE - 1) + PADDING * 2;
 
 const canvas = document.getElementById('board');
+const container = document.querySelector('.container');
 canvas.width = BOARD_SIZE;
 canvas.height = BOARD_SIZE;
 const ctx = canvas.getContext('2d');
@@ -108,11 +115,11 @@ const boardStyles = {
 };
 
 const bgColors = {
-  'dark-blue':   { body: '#2c3e50', container: '#34495e', selectBg: '#2c3e50' },
-  'dark-green':  { body: '#1a3a2a', container: '#243d30', selectBg: '#1a3a2a' },
-  'dark-purple': { body: '#2d1b4e', container: '#3d2b5e', selectBg: '#2d1b4e' },
-  'dark':        { body: '#1a1a2e', container: '#25254a', selectBg: '#1a1a2e' },
-  'light-gray':  { body: '#bdc3c7', container: '#d5d8dc', selectBg: '#95a5a6' },
+  'dark-blue':   { body: '#1a252f', container: 'rgba(26, 37, 47, 0.85)', selectBg: '#1a252f' },
+  'dark-green':  { body: '#0f1e16', container: 'rgba(15, 30, 22, 0.85)', selectBg: '#0f1e16' },
+  'dark-purple': { body: '#1a1030', container: 'rgba(26, 16, 48, 0.85)', selectBg: '#1a1030' },
+  'dark':        { body: '#0d0d1a', container: 'rgba(13, 13, 26, 0.85)', selectBg: '#0d0d1a' },
+  'light-gray':  { body: '#7f8c8d', container: 'rgba(127, 140, 141, 0.85)', selectBg: '#7f8c8d' },
 };
 
 let currentBoardStyle = 'wood-classic';
@@ -121,7 +128,7 @@ let currentBgColor = 'dark-blue';
 function setBgColor(key) {
   currentBgColor = key;
   const c = bgColors[key];
-  document.body.style.background = c.body;
+  document.body.style.backgroundColor = c.body;
   document.querySelector('.container').style.background = c.container;
   document.querySelectorAll('.settings select').forEach(s => s.style.background = c.selectBg);
   localStorage.setItem('gobang_bg', key);
@@ -384,7 +391,48 @@ function draw() {
 }
 
 // ===== Mouse =====
+let suppressClick = false;
+let dragState = null;
+
+container.addEventListener('mousedown', e => {
+  if (e.target.closest('button, select, option')) return;
+  dragState = {
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false,
+    locked: false,
+  };
+});
+
+document.addEventListener('mousemove', e => {
+  if (!dragState) return;
+  const dx = e.clientX - dragState.startX;
+  const dy = e.clientY - dragState.startY;
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragState.moved = true;
+  if (dragState.moved) {
+    if (!dragState.locked) {
+      const rect = container.getBoundingClientRect();
+      dragState.originX = rect.left;
+      dragState.originY = rect.top;
+      container.style.position = 'fixed';
+      container.style.margin = '0';
+      dragState.locked = true;
+    }
+    container.style.left = (dragState.originX + dx) + 'px';
+    container.style.top = (dragState.originY + dy) + 'px';
+    container.classList.add('dragging');
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  if (!dragState) return;
+  if (dragState.moved) suppressClick = true;
+  dragState = null;
+  container.classList.remove('dragging');
+});
+
 canvas.addEventListener('click', e => {
+  if (suppressClick) { suppressClick = false; return; }
   if (gameOver) return;
   if (mode === 'pve' && currentPlayer === 2) return;
   const rect = canvas.getBoundingClientRect();
@@ -400,6 +448,7 @@ canvas.addEventListener('click', e => {
 });
 
 canvas.addEventListener('mousemove', e => {
+  if (dragState && dragState.moved) return;
   draw();
   if (gameOver) return;
   if (mode === 'pve' && currentPlayer === 2) return;
