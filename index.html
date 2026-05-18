@@ -36,6 +36,17 @@
   .mode-hint {
     color: #bdc3c7; font-size: 13px;
   }
+  .settings {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center;
+  }
+  .settings label {
+    color: #bdc3c7; font-size: 14px;
+  }
+  .settings select {
+    padding: 5px 10px; border: 1px solid #7f8c8d; border-radius: 6px;
+    background: #2c3e50; color: #ecf0f1; font-size: 14px; cursor: pointer;
+  }
+  .settings select:focus { outline: none; border-color: #e67e22; }
 </style>
 </head>
 <body>
@@ -45,6 +56,24 @@
     <button id="btnPve" onclick="setMode('pve')">人机对战</button>
     <span class="status" id="status">黑方回合</span>
     <button class="restart" onclick="restart()">重新开始</button>
+  </div>
+  <div class="settings">
+    <label for="bgColor">背景：</label>
+    <select id="bgColor" onchange="setBgColor(this.value)">
+      <option value="dark-blue">深蓝</option>
+      <option value="dark-green">深绿</option>
+      <option value="dark-purple">深紫</option>
+      <option value="dark">暗黑</option>
+      <option value="light-gray">浅灰</option>
+    </select>
+    <label for="boardStyle">棋盘：</label>
+    <select id="boardStyle" onchange="setBoardStyle(this.value)">
+      <option value="wood-classic">经典木纹</option>
+      <option value="wood-light">浅色木纹</option>
+      <option value="green-felt">绿绒</option>
+      <option value="gray-stone">石板</option>
+      <option value="blue">蓝色</option>
+    </select>
   </div>
   <canvas id="board" width="600" height="600"></canvas>
   <div class="mode-hint" id="hint">黑方先手 · 点击棋盘落子</div>
@@ -68,6 +97,55 @@ let gameOver = false;
 let mode = 'pvp';
 let winner = null;
 let lastMove = null;
+
+// Board & background style presets
+const boardStyles = {
+  'wood-classic': { bg: '#deb887', grid: '#333', star: '#333' },
+  'wood-light':   { bg: '#f5deb3', grid: '#8b7355', star: '#8b7355' },
+  'green-felt':   { bg: '#2d8a4e', grid: '#1a5c33', star: '#1a5c33' },
+  'gray-stone':   { bg: '#a0a0a0', grid: '#505050', star: '#303030' },
+  'blue':         { bg: '#5b9bd5', grid: '#2e5c8a', star: '#1a3a5c' },
+};
+
+const bgColors = {
+  'dark-blue':   { body: '#2c3e50', container: '#34495e', selectBg: '#2c3e50' },
+  'dark-green':  { body: '#1a3a2a', container: '#243d30', selectBg: '#1a3a2a' },
+  'dark-purple': { body: '#2d1b4e', container: '#3d2b5e', selectBg: '#2d1b4e' },
+  'dark':        { body: '#1a1a2e', container: '#25254a', selectBg: '#1a1a2e' },
+  'light-gray':  { body: '#bdc3c7', container: '#d5d8dc', selectBg: '#95a5a6' },
+};
+
+let currentBoardStyle = 'wood-classic';
+let currentBgColor = 'dark-blue';
+
+function setBgColor(key) {
+  currentBgColor = key;
+  const c = bgColors[key];
+  document.body.style.background = c.body;
+  document.querySelector('.container').style.background = c.container;
+  document.querySelectorAll('.settings select').forEach(s => s.style.background = c.selectBg);
+  localStorage.setItem('gobang_bg', key);
+}
+
+function setBoardStyle(key) {
+  currentBoardStyle = key;
+  localStorage.setItem('gobang_board_style', key);
+  draw();
+}
+
+function loadSettings() {
+  const bg = localStorage.getItem('gobang_bg');
+  const style = localStorage.getItem('gobang_board_style');
+  if (bg && bgColors[bg]) {
+    currentBgColor = bg;
+    document.getElementById('bgColor').value = bg;
+    setBgColor(bg);
+  }
+  if (style && boardStyles[style]) {
+    currentBoardStyle = style;
+    document.getElementById('boardStyle').value = style;
+  }
+}
 
 // 5连胜利点集合
 let winLine = null;
@@ -230,12 +308,14 @@ function aiMove() {
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  const style = boardStyles[currentBoardStyle];
+
   // background
-  ctx.fillStyle = '#deb887';
+  ctx.fillStyle = style.bg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // grid lines
-  ctx.strokeStyle = '#333';
+  ctx.strokeStyle = style.grid;
   ctx.lineWidth = 1;
   for (let i = 0; i < SIZE; i++) {
     const pos = PADDING + i * CELL;
@@ -253,7 +333,7 @@ function draw() {
   const starPoints = SIZE === 15 ? [[3,3],[3,7],[3,11],[7,3],[7,7],[7,11],[11,3],[11,7],[11,11]] : [];
   for (const [r, c] of starPoints) {
     const x = PADDING + c * CELL, y = PADDING + r * CELL;
-    ctx.fillStyle = '#333';
+    ctx.fillStyle = style.star;
     ctx.beginPath();
     ctx.arc(x, y, 3, 0, Math.PI * 2);
     ctx.fill();
@@ -352,6 +432,7 @@ function restart() {
   initBoard();
 }
 
+loadSettings();
 initBoard();
 </script>
 </body>
