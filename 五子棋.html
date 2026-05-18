@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>五子棋</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; background: #2c3e50; font-family: "Microsoft YaHei", sans-serif;
+  }
+  .container {
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    background: #34495e; padding: 24px 32px; border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+  }
+  .header {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center;
+  }
+  .header button {
+    padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer;
+    font-size: 15px; font-weight: bold; transition: all .2s;
+    color: #fff; background: #7f8c8d;
+  }
+  .header button:hover { opacity: .85; }
+  .header button.active { background: #e67e22; }
+  .header button.restart { background: #e74c3c; }
+  .status {
+    font-size: 18px; font-weight: bold; color: #ecf0f1; min-width: 120px; text-align: center;
+  }
+  canvas {
+    background: #deb887; border-radius: 8px; cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,.3);
+  }
+  .mode-hint {
+    color: #bdc3c7; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <button id="btnPvp" class="active" onclick="setMode('pvp')">双人对战</button>
+    <button id="btnPve" onclick="setMode('pve')">人机对战</button>
+    <span class="status" id="status">黑方回合</span>
+    <button class="restart" onclick="restart()">重新开始</button>
+  </div>
+  <canvas id="board" width="600" height="600"></canvas>
+  <div class="mode-hint" id="hint">黑方先手 · 点击棋盘落子</div>
+</div>
+
+<script>
+const SIZE = 15;
+const CELL = 36;
+const RADIUS = 15;
+const PADDING = 30;
+const BOARD_SIZE = CELL * (SIZE - 1) + PADDING * 2;
+
+const canvas = document.getElementById('board');
+canvas.width = BOARD_SIZE;
+canvas.height = BOARD_SIZE;
+const ctx = canvas.getContext('2d');
+
+let board = [];
+let currentPlayer = 1; // 1=黑, 2=白
+let gameOver = false;
+let mode = 'pvp';
+let winner = null;
+let lastMove = null;
+
+// 5连胜利点集合
+let winLine = null;
+
+function initBoard() {
+  board = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+  currentPlayer = 1;
+  gameOver = false;
+  winner = null;
+  lastMove = null;
+  winLine = null;
+  updateUI();
+  draw();
+}
+
+const DIRECTIONS = [[1,0],[0,1],[1,1],[1,-1]];
+
+function inRange(r, c) { return r >= 0 && r < SIZE && c >= 0 && c < SIZE; }
+
+function checkWin(row, col) {
+  const player = board[row][col];
+  for (const [dr, dc] of DIRECTIONS) {
+    const cells = [[row, col]];
+    // forward
+    for (let i = 1; i < 5; i++) {
+      const r = row + dr * i, c = col + dc * i;
+      if (inRange(r, c) && board[r][c] === player) cells.push([r, c]);
+      else break;
+    }
+    // backward
+    for (let i = 1; i < 5; i++) {
+      const r = row - dr * i, c = col - dc * i;
+      if (inRange(r, c) && board[r][c] === player) cells.unshift([r, c]);
+      else break;
+    }
+    if (cells.length >= 5) {
+      winLine = cells;
+      return player;
+    }
+  }
+  return null;
+}
+
+function isDraw() {
+  for (let r = 0; r < SIZE; r++)
+    for (let c = 0; c < SIZE; c++)
+      if (board[r][c] === 0) return false;
+  return true;
+}
+
+function updateUI() {
+  const status = document.getElementById('status');
+  const hint = document.getElementById('hint');
+  if (gameOver) {
+    if (winner === 1) { status.textContent = '黑方胜利！'; hint.textContent = '点击"重新开始"再来一局'; }
+    else if (winner === 2) { status.textContent = '白方胜利！'; hint.textContent = '点击"重新开始"再来一局'; }
+    else { status.textContent = '平局！'; hint.textContent = '点击"重新开始"再来一局'; }
+  } else {
+    const name = currentPlayer === 1 ? '黑方' : '白方';
+    status.textContent = name + '回合';
+    if (mode === 'pve' && currentPlayer === 2) hint.textContent = 'AI 思考中...';
+    else hint.textContent = '点击棋盘落子';
+  }
+}
+
+function placePiece(row, col) {
+  if (gameOver) return false;
+  if (board[row][col] !== 0) return false;
+  board[row][col] = currentPlayer;
+  lastMove = [row, col];
+  const w = checkWin(row, col);
+  if (w) {
+    winner = w;
+    gameOver = true;
+    updateUI();
+    draw();
+    return true;
+  }
+  if (isDraw()) {
+    gameOver = true;
+    updateUI();
+    draw();
+    return true;
+  }
+  currentPlayer = currentPlayer === 1 ? 2 : 1;
+  updateUI();
+  draw();
+
+  // AI move
+  if (!gameOver && mode === 'pve' && currentPlayer === 2) {
+    setTimeout(aiMove, 100);
+  }
+  return true;
+}
+
+// ===== AI =====
+function scoreDirection(r, c, dr, dc, player) {
+  let count = 0, openEnds = 0;
+  // positive
+  let i = 1;
+  while (inRange(r + dr * i, c + dc * i) && board[r + dr * i][c + dc * i] === player) { count++; i++; }
+  if (inRange(r + dr * i, c + dc * i) && board[r + dr * i][c + dc * i] === 0) openEnds++;
+  // negative
+  i = 1;
+  while (inRange(r - dr * i, c - dc * i) && board[r - dr * i][c - dc * i] === player) { count++; i++; }
+  if (inRange(r - dr * i, c - dc * i) && board[r - dr * i][c - dc * i] === 0) openEnds++;
+  return [count, openEnds];
+}
+
+function scorePos(r, c, player) {
+  let total = 0;
+  for (const [dr, dc] of DIRECTIONS) {
+    const [cnt, open] = scoreDirection(r, c, dr, dc, player);
+    if (cnt >= 4) total += 100000;
+    else if (cnt === 3 && open === 2) total += 10000; // 活四
+    else if (cnt === 3 && open === 1) total += 1000;  // 冲四
+    else if (cnt === 2 && open === 2) total += 500;   // 活三
+    else if (cnt === 2 && open === 1) total += 200;
+    else if (cnt === 1 && open === 2) total += 50;
+    else if (cnt === 1 && open === 1) total += 20;
+    else if (cnt === 0 && open === 2) total += 5;
+  }
+  return total;
+}
+
+function aiMove() {
+  if (gameOver) return;
+  let bestScore = -1, bestR = -1, bestC = -1;
+  const candidates = [];
+  // find candidates near existing stones
+  const visited = new Set();
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (board[r][c] === 0) continue;
+      for (const [dr, dc] of [[...DIRECTIONS[0]],[...DIRECTIONS[1]],[...DIRECTIONS[2]],[...DIRECTIONS[3]],
+                              [-1,0],[0,-1],[-1,-1],[-1,1]]) {
+        const nr = r + dr, nc = c + dc;
+        if (inRange(nr, nc) && board[nr][nc] === 0 && !visited.has(nr * SIZE + nc)) {
+          visited.add(nr * SIZE + nc);
+          candidates.push([nr, nc]);
+        }
+      }
+    }
+  }
+  if (candidates.length === 0) {
+    // first move: play center
+    placePiece(7, 7);
+    return;
+  }
+  for (const [r, c] of candidates) {
+    const atk = scorePos(r, c, 2);
+    const def = scorePos(r, c, 1);
+    const score = atk + def * 1.1; // slight emphasis on defense
+    if (score > bestScore) { bestScore = score; bestR = r; bestC = c; }
+  }
+  if (bestR >= 0) placePiece(bestR, bestC);
+}
+
+// ===== Drawing =====
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // background
+  ctx.fillStyle = '#deb887';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // grid lines
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < SIZE; i++) {
+    const pos = PADDING + i * CELL;
+    ctx.beginPath();
+    ctx.moveTo(PADDING, pos);
+    ctx.lineTo(PADDING + (SIZE - 1) * CELL, pos);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(pos, PADDING);
+    ctx.lineTo(pos, PADDING + (SIZE - 1) * CELL);
+    ctx.stroke();
+  }
+
+  // star points
+  const starPoints = SIZE === 15 ? [[3,3],[3,7],[3,11],[7,3],[7,7],[7,11],[11,3],[11,7],[11,11]] : [];
+  for (const [r, c] of starPoints) {
+    const x = PADDING + c * CELL, y = PADDING + r * CELL;
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // win line highlight
+  if (winLine) {
+    for (const [r, c] of winLine) {
+      const x = PADDING + c * CELL, y = PADDING + r * CELL;
+      ctx.fillStyle = 'rgba(255, 215, 0, .5)';
+      ctx.beginPath();
+      ctx.arc(x, y, RADIUS + 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // stones
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (board[r][c] === 0) continue;
+      const x = PADDING + c * CELL, y = PADDING + r * CELL;
+      const grad = ctx.createRadialGradient(x - 4, y - 4, 1, x, y, RADIUS);
+      if (board[r][c] === 1) {
+        grad.addColorStop(0, '#555');
+        grad.addColorStop(1, '#111');
+      } else {
+        grad.addColorStop(0, '#fff');
+        grad.addColorStop(1, '#ccc');
+      }
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#666';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  // last move marker
+  if (lastMove && board[lastMove[0]][lastMove[1]] !== 0) {
+    const x = PADDING + lastMove[1] * CELL, y = PADDING + lastMove[0] * CELL;
+    ctx.fillStyle = board[lastMove[0]][lastMove[1]] === 1 ? '#e74c3c' : '#e74c3c';
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ===== Mouse =====
+canvas.addEventListener('click', e => {
+  if (gameOver) return;
+  if (mode === 'pve' && currentPlayer === 2) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top) * scaleY;
+  const col = Math.round((mx - PADDING) / CELL);
+  const row = Math.round((my - PADDING) / CELL);
+  if (inRange(row, col) && board[row][col] === 0) {
+    placePiece(row, col);
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  draw();
+  if (gameOver) return;
+  if (mode === 'pve' && currentPlayer === 2) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top) * scaleY;
+  const col = Math.round((mx - PADDING) / CELL);
+  const row = Math.round((my - PADDING) / CELL);
+  if (inRange(row, col) && board[row][col] === 0) {
+    const x = PADDING + col * CELL, y = PADDING + row * CELL;
+    ctx.fillStyle = currentPlayer === 1 ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.4)';
+    ctx.beginPath();
+    ctx.arc(x, y, RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+  }
+});
+
+canvas.addEventListener('mouseleave', draw);
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btnPvp').classList.toggle('active', m === 'pvp');
+  document.getElementById('btnPve').classList.toggle('active', m === 'pve');
+  restart();
+}
+
+function restart() {
+  initBoard();
+}
+
+initBoard();
+</script>
+</body>
+</html>
